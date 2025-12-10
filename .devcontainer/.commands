@@ -1,0 +1,12 @@
+#!/bin/sh
+
+PLATFORM="$1"
+OPTION="$2"
+
+echo "ENV: SHELL=/bin/fish"
+
+if [ ! -z "$OPTION" ] && [ "$OPTION" = "build" ]; then
+    echo "CMD: cmake -S . -B build && cmake --build build --target all"
+elif [ ! -z "$OPTION" ] && [ "$OPTION" = "dev" ]; then
+    echo "CMD: /bin/fish"
+fi
