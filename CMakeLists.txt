@@ -24,11 +24,11 @@ set (SOURCE_FILES
 
 # Enforce shared build
 set(BUILD_SHARED_LIBS OFF)
+set(BUILD_STATIC_LIBS ON)
 
 # Disable all options of libarchive
 set(ENABLE_TEST OFF)
 set(ENABLE_LIBB2 OFF)
-set(ENABLE_LZ4 ON)
 set(ENABLE_LZO OFF)
 set(ENABLE_LZMA OFF)
 set(ENABLE_ZSTD OFF)
@@ -38,8 +38,12 @@ set(ENABLE_EXPAT OFF)
 set(ENABLE_PCREPOSIX OFF)
 set(ENABLE_PCRE2POSIX OFF)
 set(ENABLE_LIBGCC OFF)
-# Only enable ZLIB support
+
+# Only enable selective support
 set(ENABLE_ZLIB ON)
+set(ENABLE_LZ4 ON)
+
+set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 
 # Enforce static linkage of zlib
 set(ZLIB_USE_STATIC_LIBS ON)
@@ -51,4 +55,4 @@ add_subdirectory(deps/libarchive EXCLUDE_FROM_ALL)
 # Link executable
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(${PROJECT_NAME} PRIVATE archive_static ZLIB::ZLIB)
+target_link_libraries(${PROJECT_NAME} PRIVATE -static archive_static ZLIB::ZLIB ${LZ4})
