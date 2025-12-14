@@ -1,100 +1,98 @@
-#include <archive.h>
+#include "compression.h"
 #include <archive_entry.h>
-#include <fstream>
+#include <chrono>
 #include <iostream>
 
+#define USE_ZIP 1
+#define NONBLOCK 1
+
 int custom_open(struct archive *archive, void *data) {
-  std::cout << "> Custom Open" << std::endl;
-  return ARCHIVE_OK;
+    std::cout << "> Custom Open" << std::endl;
+    return ARCHIVE_OK;
 }
 
-la_ssize_t custom_write(struct archive *archive, void *data, const void *buffer,
-                        size_t length) {
-  std::string s(reinterpret_cast<const char *>(buffer), length);
-  std::cerr << s << std::flush;
-  return length;
+la_ssize_t custom_write(struct archive *archive, void *data, const void *buffer, size_t length) {
+    std::string s(reinterpret_cast<const char *>(buffer), length);
+    std::cerr << s << std::flush;
+    return length;
 }
 
 int custom_close(struct archive *archive, void *data) {
-  std::cout << std::endl << "> Custom Close" << std::endl;
-  return ARCHIVE_OK;
+    std::cout << std::endl << "> Custom Close" << std::endl;
+    return ARCHIVE_OK;
 }
 
 int custom_free(struct archive *archive, void *data) {
-  std::cout << "> Custom Free" << std::endl;
-  return ARCHIVE_OK;
+    std::cout << "> Custom Free" << std::endl;
+    return ARCHIVE_OK;
 }
 
 int main(int argc, char **argv) {
-  if (argc < 2) {
-    std::cerr << "Missing argument" << std::endl;
-    return 1;
-  }
-  auto *archive = archive_write_new();
-  if (archive == nullptr) {
-    std::cerr << "Unable to create archive reader" << std::endl;
-    return 1;
-  }
-
-  if (archive_write_set_format_zip(archive) != ARCHIVE_OK) {
-    std::cerr << "Unable to set output file to zip" << std::endl;
-    return 1;
-  }
-
-  if (archive_write_zip_set_compression_deflate(archive) != ARCHIVE_OK) {
-    std::cerr << "Unanble to set compresssion" << std::endl;
-    return 1;
-  }
-
-  if (std::string(argv[1]) == "file") {
-    if (archive_write_open_filename(archive, "archive.zip") != ARCHIVE_OK) {
-      std::cerr << "Failed to open output file" << std::endl;
-      return 1;
-    }
-  } else if (std::string(argv[1]) == "cerr") {
-    if (archive_write_open2(archive, nullptr, &custom_open, &custom_write,
-                            &custom_close, &custom_free) != ARCHIVE_OK) {
-      std::cerr << "Failed to set custom callbacks" << std::endl;
-      return 1;
-    }
-  } else {
-    std::cerr << "Unknown output" << std::endl;
-    return 1;
-  }
-
-  for (int i = 2; i < argc; ++i) {
-    std::ifstream input;
-    input.open(argv[i]);
-    if (!input.is_open()) {
-      std::cerr << "Failed to open input file" << std::endl;
-      return 1;
-    }
-
-    size_t read = 0;
-    char buffer[512];
-
-    auto *header = archive_entry_new();
-    archive_entry_set_pathname(header, argv[i]);
-    archive_entry_set_filetype(header, AE_IFREG);
-
-    if (archive_write_header(archive, header) != ARCHIVE_OK) {
-      std::cerr << "Failed to write header" << std::endl;
-      return 1;
-    }
-
-    do {
-      read = input.readsome(&buffer[0], 512);
-      if (archive_write_data(archive, &buffer[0], read) != read) {
-        std::cerr << "Failed to write data to archive" << std::endl;
+    if (argc < 3) {
+        std::cerr << "Missing argument" << std::endl;
         return 1;
-      }
-    } while (read > 0);
-  }
+    }
 
-  if (archive_write_free(archive) != ARCHIVE_OK) {
-    std::cerr << "Failed to free archive" << std::endl;
-    return 1;
-  }
+    int offset = 0;
+    compression::Writer::Pointer writer;
 
-  return 0;
+    if (std::string(argv[1]) == "file") {
+        auto res = compression::Writer::open(argv[2]);
+        if (!res) {
+            std::cerr << "Failed to open output file " << static_cast<int>(res.error()) << std::endl;
+            return 1;
+        }
+        writer.swap(res.value());
+        offset = 1;
+    } else if (std::string(argv[1]) == "cerr") {
+        auto res = compression::Writer::open(&custom_open, &custom_write, &custom_close, &custom_free);
+        if (!res) {
+            std::cerr << "Failed to open output file" << std::endl;
+            return 1;
+        }
+        writer.swap(res.value());
+    } else {
+        std::cerr << "Unknown output" << std::endl;
+        return 1;
+    }
+
+    while (true) {
+        std::string input;
+        std::cerr << "Enter filename: " << std::flush;
+        std::cin >> input;
+
+        if (input == "exit") {
+            break;
+        }
+
+        if (!writer->add_file(input)) {
+            std::cerr << "Invalid file input" << std::endl;
+            continue;
+        }
+
+#if NONBLOCK
+        auto now = std::chrono::system_clock::now();
+        compression::Writer::Result<compression::State> res;
+        do {
+            res = writer->write(compression::Mode::NonBlock);
+            if (!res) {
+                std::cerr << "Failed to write zip file " << static_cast<int>(res.error()) << std::endl;
+                return 1;
+            }
+        } while (res.has_value() && res.value() == compression::State::InProgress);
+        auto diff =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now).count();
+        std::cerr << "Took " << diff << "ms" << std::endl;
+#else
+        auto res = writer.write(compression::Mode::Block);
+        if (!res) {
+            std::cerr << "Failed to write zip file " << static_cast<int>(res.error()) << std::endl;
+            return 1;
+        }
+#endif
+    }
+
+    writer->close();
+
+    return 0;
 }

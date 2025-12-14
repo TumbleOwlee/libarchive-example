@@ -8,6 +8,8 @@ project(zip-test
 
 # Export compile commands
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Set default to Debug
 if("${CMAKE_BUILD_TYPE}" STREQUAL "")
@@ -26,7 +28,7 @@ set(BUILD_SHARED_LIBS OFF)
 # Disable all options of libarchive
 set(ENABLE_TEST OFF)
 set(ENABLE_LIBB2 OFF)
-set(ENABLE_LZ4 OFF)
+set(ENABLE_LZ4 ON)
 set(ENABLE_LZO OFF)
 set(ENABLE_LZMA OFF)
 set(ENABLE_ZSTD OFF)
@@ -49,4 +51,4 @@ add_subdirectory(deps/libarchive EXCLUDE_FROM_ALL)
 # Link executable
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(${PROJECT_NAME} PRIVATE -static archive_static ZLIB::ZLIB)
+target_link_libraries(${PROJECT_NAME} PRIVATE archive_static ZLIB::ZLIB)
