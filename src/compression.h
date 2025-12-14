@@ -241,7 +241,7 @@ private:
             return std::unexpected(Error::SetCompressionFailed);
         }
 
-        if (archive_write_set_bytes_per_block(archive.get(), 512) != ARCHIVE_OK) {
+        if (archive_write_set_bytes_per_block(archive.get(), buffer.size) != ARCHIVE_OK) {
             return std::unexpected(Error::SetCompressionFailed);
         }
 
@@ -257,7 +257,7 @@ private:
             return std::unexpected(Error::SetCompressionFailed);
         }
 
-        if (archive_write_set_bytes_per_block(archive.get(), 512) != ARCHIVE_OK) {
+        if (archive_write_set_bytes_per_block(archive.get(), buffer.size) != ARCHIVE_OK) {
             return std::unexpected(Error::SetCompressionFailed);
         }
 
