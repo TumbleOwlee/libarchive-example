@@ -157,11 +157,25 @@ public:
         }
     }
 
+    /*!
+     * \brief Compress and write the queued files into the output archive
+     *
+     * \details Based on the provided mode either everything is written into
+     *          the archive or only a single step is performed. If non-blocking
+     *          mode is selected, the operation has to be repeated until the 
+     *          result state is given as finished.
+     * 
+     * \param mode Mode of operation
+     *
+     * \return Result with the state of operation on success, error code on failure.
+     */
     auto write(Mode mode = Mode::Block) -> Result<State> {
+        // Nothing to do, archive is completely written
         if (!input.is_open() && files.empty()) {
             return State::Finished;
         }
 
+        // Repeat in blocking mode until everything is written
         do {
             // Open file if not already opened
             if (!input.is_open()) {
@@ -169,19 +183,25 @@ public:
                 input.open(file.c_str(), std::ios_base::in);
                 files.pop();
 
+                // Failed to open input file
                 if (!input.is_open()) {
                     return std::unexpected(Error::OpenFailed);
                 }
 
+                // Get stats of input file, especially its size
                 struct stat64 stat;
                 if (lstat64(file.c_str(), &stat) < 0) {
                     return std::unexpected(Error::StatFailed);
                 }
 
+                // Create new entry for the file
                 entry.header.reset(archive_entry_new());
+
+                // Save total size, init remaining size to be written
                 entry.remainingSize = stat.st_size;
                 entry.totalSize = stat.st_size;
 
+                // Set entry meta information
                 archive_entry_set_pathname(entry.header.get(), file.c_str());
                 archive_entry_set_size(entry.header.get(), stat.st_size);
                 archive_entry_set_filetype(entry.header.get(), AE_IFREG);
@@ -189,8 +209,8 @@ public:
                 archive_entry_set_gid(entry.header.get(), 1000);
                 archive_entry_set_mode(entry.header.get(), S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 
+                // Write header to archive
                 auto res = archive_write_header(archive.get(), entry.header.get());
-
                 if (res != ARCHIVE_OK) {
                     return std::unexpected(Error::WriteFailed);
                 }
@@ -222,6 +242,7 @@ public:
                 }
             }
 
+            // File content has changed after queuing
             if (input.eof() && entry.remainingSize > 0) {
                 return std::unexpected(Error::FileChanged);
             }
@@ -242,6 +263,12 @@ public:
                    : State::Finished;
     }
 
+    /*!
+     * \brief Close the archive
+     *
+     * \details Closing the archive will force the write of the end-section
+     *          that depends on the used compression and output file type.
+     */
     auto close() -> void {
         archive.reset();
         std::queue<std::string> q;
@@ -252,16 +279,34 @@ public:
     }
 
 private:
+    /*!
+     * \brief Input-Output buffer
+     *
+     * \details The buffer is utilized to read input files and push the
+     *          content into the archive.
+     */
     struct Buffer {
         std::unique_ptr<char> data;
         size_t size;
         size_t filled;
         size_t extracted;
 
+        /*!
+         * \brief Constructor
+         *
+         * \param size Size of the internal buffer
+         */
         Buffer(size_t size) : data(new char[size]), size(size) {}
+
+        /*!
+         * \brief Destructor
+         */
         ~Buffer() = default;
     };
 
+    /*!
+     * \brief Deleter of the `struct archive`
+     */
     struct ArchiveDeleter {
         auto operator()(struct archive *archive) -> void {
             if (archive != nullptr) {
@@ -270,6 +315,9 @@ private:
         }
     };
 
+    /*!
+     * \brief Deleter of the `struct archive_entry`
+     */
     struct EntryDeleter {
         auto operator()(struct archive_entry *entry) -> void {
             if (entry != nullptr) {
@@ -278,20 +326,27 @@ private:
         }
     };
 
+    /*!
+     * \brief Entry information
+     */
     struct Entry {
         std::unique_ptr<struct archive_entry, EntryDeleter> header;
         size_t totalSize;
         size_t remainingSize;
     };
 
-    Entry entry;
-    std::unique_ptr<struct archive, ArchiveDeleter> archive;
-    std::queue<std::string> files;
-    std::ifstream input;
-    Buffer buffer;
-
+    /*!
+     * \brief Constructor
+     * 
+     * \param bufferSize The size of the internal buffer
+     */
     Writer(size_t bufferSize = 512) : buffer(bufferSize) {}
 
+    /*!
+     * \brief Opens the new output archive
+     *
+     * \return Nothing on success, else error code
+     */
     auto open() -> Result<void> {
         archive.reset(archive_write_new());
         if (archive == nullptr) {
@@ -305,6 +360,11 @@ private:
 #endif
     }
 
+    /*!
+     * \brief Initializes output archive to use LZ4 compression
+     *
+     * \return Nothing on success, else error code
+     */
     auto setupLZ4() -> Result<void> {
         if (archive_write_set_format_pax(archive.get()) != ARCHIVE_OK) {
             return std::unexpected(Error::SetFormatFailed);
@@ -321,6 +381,11 @@ private:
         return std::expected<void, Error>();
     }
 
+    /*!
+     * \brief Initializes output archive to use ZIP compression
+     *
+     * \return Nothing on success, else error code
+     */
     auto setupZip() -> Result<void> {
         if (archive_write_set_format_zip(archive.get()) != ARCHIVE_OK) {
             return std::unexpected(Error::SetFormatFailed);
@@ -336,6 +401,12 @@ private:
 
         return std::expected<void, Error>();
     }
+
+    Entry entry;
+    std::unique_ptr<struct archive, ArchiveDeleter> archive;
+    std::queue<std::string> files;
+    std::ifstream input;
+    Buffer buffer;
 };
 
 } // namespace compression
