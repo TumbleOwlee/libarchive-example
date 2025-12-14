@@ -9,6 +9,11 @@
 
 namespace compression {
 
+/*!
+ * \brief Error codes
+ *
+ * \details The Error codes are returned if an operation fails
+ */
 enum class Error {
     InitFailed = 0,
     SetFormatFailed,
@@ -19,24 +24,65 @@ enum class Error {
     FileChanged,
 };
 
+/*!
+ * \brief Modes of operation
+ *
+ * \details The two possible modes are given as non-blocking and blocking.
+ *          In case of non-blocking mode, the operation will perform only a
+ *          single step before returning.
+ */
 enum class Mode {
     NonBlock,
     Block,
 };
 
+/*!
+ * \brief State of operation
+ *
+ * \details The state of operation is either given as in progress or finished.
+ *          Any blocking call will guarantee that it's finished after a single
+ *          call. A non-blocking call may return with 'InProgress' if the
+ *          operation couldn't finish without blocking or if required multiple
+ *          steps to fully finalize the operation.
+ */
 enum class State {
     InProgress,
     Finished,
 };
 
+/*!
+ * \brief Writer of an archive file
+ * 
+ * \details The writer will compress a list of files into a single archive.
+ *          Normally this operation will save around 75% of the necessary
+ *          storage.
+ */
 class Writer {
 public:
     template <typename T>
     using Result = std::expected<T, Error>;
     using Pointer = std::unique_ptr<Writer>;
-
+    
+    /*!
+     * \brief Destructor of the writer
+     *
+     * \details The destructor will finalize the archive. If any file isn't
+     *          written fully. The data will not be contained in the archive.
+     */
     ~Writer() = default;
 
+    /*!
+     * \brief Open new archive to write into
+     *
+     * \details Create a new archive under the given filename. The given buffer
+     *          buffer size will determine the block size of any compression
+     *          step.
+     *
+     * \param filename   Output filename of the archive
+     * \param bufferSize The output buffer size
+     *
+     * \return Result container either a reference to the writer or an error code
+     */
     static auto open(std::string filename, size_t bufferSize = 512) -> Result<Pointer> {
         auto writer = std::unique_ptr<Writer>(new Writer(bufferSize));
         auto res = writer->open();
@@ -58,6 +104,22 @@ public:
         return writer;
     }
 
+    /*!
+     * \brief Open new archive using custom callbacks
+     *
+     * \details Create a new archive using custom callbacks. The given buffer
+     *          buffer size will determine the block size of any compression
+     *          step.
+     *
+     * \param open       Custom callback to open output archive
+     * \param write      Custom callback to write to output archive
+     * \param close      Custom callback to close output archive
+     * \param free       Custom callback to free userdata
+     * \param userdata   Userdata passed to all callbacks
+     * \param bufferSize The output buffer size
+     *
+     * \return Result container either a reference to the writer or an error code
+     */
     static auto open(archive_open_callback open, archive_write_callback write, archive_close_callback close,
                      archive_free_callback free, void *userdata = nullptr, size_t bufferSize = 512) -> Result<Pointer> {
         auto writer = std::unique_ptr<Writer>(new Writer(bufferSize));
@@ -74,6 +136,17 @@ public:
         return writer;
     }
 
+    /*!
+     * \brief Add a file to the archive list
+     *
+     * \details Adds The given file to the list of files to write to the archive.
+     *          It fails if the specified file doesn't exist. Returns false in 
+     *          this case. Return true otherwise.
+     *
+     * \param filename The filename to add to the list
+     *
+     * \return True if files is added successfully. False otherwise.
+     */
     auto add_file(std::string filename) -> bool {
         struct stat64 stat;
         if (0 == lstat64(filename.c_str(), &stat)) {
