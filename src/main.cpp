@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
     compression::Writer::Pointer writer;
 
     if (std::string(argv[1]) == "file") {
-        auto res = compression::Writer::open(argv[2]);
+        auto res = compression::Writer::open(argv[2], compression::ArchiveType::TarLz4);
         if (!res) {
             std::cerr << "Failed to open output file " << static_cast<int>(res.error()) << std::endl;
             return 1;
@@ -45,7 +45,8 @@ int main(int argc, char **argv) {
         writer.swap(res.value());
         offset = 1;
     } else if (std::string(argv[1]) == "cerr") {
-        auto res = compression::Writer::open(&custom_open, &custom_write, &custom_close, &custom_free);
+        auto res = compression::Writer::open(compression::ArchiveType::TarLz4, &custom_open, &custom_write,
+                                             &custom_close, &custom_free);
         if (!res) {
             std::cerr << "Failed to open output file" << std::endl;
             return 1;

@@ -22,6 +22,7 @@ enum class Error {
     WriteFailed,
     StatFailed,
     FileChanged,
+    InvalidType,
 };
 
 /*!
@@ -50,9 +51,14 @@ enum class State {
     Finished,
 };
 
+enum class ArchiveType {
+    Zip,
+    TarLz4,
+};
+
 /*!
  * \brief Writer of an archive file
- * 
+ *
  * \details The writer will compress a list of files into a single archive.
  *          Normally this operation will save around 75% of the necessary
  *          storage.
@@ -62,7 +68,7 @@ public:
     template <typename T>
     using Result = std::expected<T, Error>;
     using Pointer = std::unique_ptr<Writer>;
-    
+
     /*!
      * \brief Destructor of the writer
      *
@@ -83,19 +89,28 @@ public:
      *
      * \return Result container either a reference to the writer or an error code
      */
-    static auto open(std::string filename, size_t bufferSize = 512) -> Result<Pointer> {
+    static auto open(std::string filename, ArchiveType type, size_t bufferSize = 512) -> Result<Pointer> {
         auto writer = std::unique_ptr<Writer>(new Writer(bufferSize));
-        auto res = writer->open();
+        auto res = writer->open(type);
 
         if (!res) {
             return std::unexpected<Error>(res.error());
         }
 
-#if USE_ZIP
-        filename += ".zip";
-#else
-        filename += ".tar.lz4";
+        switch (type) {
+#if defined(HAVE_ZLIB_H)
+        case ArchiveType::Zip:
+            filename += ".zip";
+            break;
 #endif
+#if defined(HAVE_LIBLZ4)
+        case ArchiveType::TarLz4:
+            filename += ".tar.lz4";
+            break;
+#endif
+        default:
+            return std::unexpected(Error::InvalidType);
+        }
 
         if (archive_write_open_filename(writer->archive.get(), filename.c_str()) != ARCHIVE_OK) {
             return std::unexpected(Error::OpenFailed);
@@ -120,10 +135,11 @@ public:
      *
      * \return Result container either a reference to the writer or an error code
      */
-    static auto open(archive_open_callback open, archive_write_callback write, archive_close_callback close,
-                     archive_free_callback free, void *userdata = nullptr, size_t bufferSize = 512) -> Result<Pointer> {
+    static auto open(ArchiveType type, archive_open_callback open, archive_write_callback write,
+                     archive_close_callback close, archive_free_callback free, void *userdata = nullptr,
+                     size_t bufferSize = 512) -> Result<Pointer> {
         auto writer = std::unique_ptr<Writer>(new Writer(bufferSize));
-        auto res = writer->open();
+        auto res = writer->open(type);
 
         if (!res) {
             return std::unexpected<Error>(res.error());
@@ -140,7 +156,7 @@ public:
      * \brief Add a file to the archive list
      *
      * \details Adds The given file to the list of files to write to the archive.
-     *          It fails if the specified file doesn't exist. Returns false in 
+     *          It fails if the specified file doesn't exist. Returns false in
      *          this case. Return true otherwise.
      *
      * \param filename The filename to add to the list
@@ -162,9 +178,9 @@ public:
      *
      * \details Based on the provided mode either everything is written into
      *          the archive or only a single step is performed. If non-blocking
-     *          mode is selected, the operation has to be repeated until the 
+     *          mode is selected, the operation has to be repeated until the
      *          result state is given as finished.
-     * 
+     *
      * \param mode Mode of operation
      *
      * \return Result with the state of operation on success, error code on failure.
@@ -337,7 +353,7 @@ private:
 
     /*!
      * \brief Constructor
-     * 
+     *
      * \param bufferSize The size of the internal buffer
      */
     Writer(size_t bufferSize = 512) : buffer(bufferSize) {}
@@ -347,17 +363,24 @@ private:
      *
      * \return Nothing on success, else error code
      */
-    auto open() -> Result<void> {
+    auto open(ArchiveType type) -> Result<void> {
         archive.reset(archive_write_new());
         if (archive == nullptr) {
             return std::unexpected(Error::InitFailed);
         }
 
-#if USE_ZIP
-        return setupZip();
-#else
-        return setupLZ4();
+        switch (type) {
+#if defined(HAVE_ZLIB_H)
+        case ArchiveType::Zip:
+            return setupZip();
 #endif
+#if defined(HAVE_LIBLZ4)
+        case ArchiveType::TarLz4:
+            return setupLZ4();
+#endif
+        default:
+            return std::unexpected(Error::InvalidType);
+        }
     }
 
     /*!
@@ -402,10 +425,15 @@ private:
         return std::expected<void, Error>();
     }
 
+    // Actively written entry
     Entry entry;
+    // Output archive pointer
     std::unique_ptr<struct archive, ArchiveDeleter> archive;
+    // Queue of files to include in zip
     std::queue<std::string> files;
+    // Input file stream for files
     std::ifstream input;
+    // Buffer used for input-output into zip
     Buffer buffer;
 };
 
